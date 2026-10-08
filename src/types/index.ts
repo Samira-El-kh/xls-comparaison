@@ -48,6 +48,7 @@ export interface FieldDiff {
     absolute: number;
     percentage: number | null;
   };
+  dateFormatOnly?: boolean;
 }
 
 export interface RowDiff {
@@ -106,5 +107,5 @@ export interface FieldChangeSummary {
   }[];
 }
 
-export type AppView = 'upload' | 'compare' | 'fields' | 'quality';
+export type AppView = 'upload' | 'compare' | 'fields' | 'quality' | 'analytics';
 export type ThemeMode = 'light' | 'dark';

@@ -10,7 +10,7 @@ import type {
   RowDiff,
   ValidationResult,
 } from '@/types';
-import { computeNumericDiff, isNumeric, numbersEqual } from './numericDiff';
+import { computeNumericDiff, isNumeric, numbersEqual, tryParseDate } from './numericDiff';
 import { isEmpty, valuesEqual } from './stringDiff';
 
 export interface EngineInput {
@@ -24,7 +24,7 @@ export interface EngineInput {
   metadataB: MetadataEntry[];
 }
 
-export function compareWorkbooks(input: EngineInput): ComparisonResult {
+export function compareWorkbooks(input: EngineInput, columnTolerances: Record<string, number> = {}): ComparisonResult {
   const { headersA, headersB, rowsA, rowsB, keyColumn, config, metadataA, metadataB } = input;
 
   const stringOpts = {
@@ -75,8 +75,8 @@ export function compareWorkbooks(input: EngineInput): ComparisonResult {
     const rowB = listB?.[0];
 
     if (rowA && rowB) {
-      const fields = compareFields(rowA, rowB, allHeaders, config, stringOpts);
-      const changedFields = fields.filter((f) => f.status === 'CHANGED');
+      const fields = compareFields(rowA, rowB, allHeaders, config, stringOpts, columnTolerances);
+      const changedFields = fields.filter((f) => f.status === 'CHANGED' && !f.dateFormatOnly);
       const status = changedFields.length > 0 ? 'CHANGED' : 'UNCHANGED';
       rows.push({
         key,
@@ -160,7 +160,8 @@ function compareFields(
     ignoreWhitespace: boolean;
     treatEmptyAsEqual: boolean;
     caseInsensitive: boolean;
-  }
+  },
+  columnTolerances: Record<string, number> = {}
 ): FieldDiff[] {
   return headers.map((field) => {
     const oldVal = rowA[field];
@@ -178,8 +179,25 @@ function compareFields(
     const bothNumeric = isNumeric(oldVal) && isNumeric(newVal);
     let equal: boolean;
 
+    // Check if both values are dates in different formats representing the same day
+    const dateA = tryParseDate(oldVal);
+    const dateB = tryParseDate(newVal);
+    const bothDates = dateA !== null && dateB !== null;
+    if (bothDates) {
+      const sameDay =
+        dateA.getFullYear() === dateB.getFullYear() &&
+        dateA.getMonth() === dateB.getMonth() &&
+        dateA.getDate() === dateB.getDate();
+      if (sameDay) {
+        return { field, oldValue: oldVal, newValue: newVal, status: 'CHANGED' as const, dateFormatOnly: true };
+      }
+    }
+
     if (bothNumeric) {
-      equal = numbersEqual(oldVal, newVal, config.numericMode, config.tolerance);
+      const colTolerance = columnTolerances[field];
+      const mode = colTolerance !== undefined ? 'tolerance' : config.numericMode;
+      const tol = colTolerance !== undefined ? colTolerance : config.tolerance;
+      equal = numbersEqual(oldVal, newVal, mode, tol);
     } else {
       equal = valuesEqual(oldVal, newVal, stringOpts);
     }

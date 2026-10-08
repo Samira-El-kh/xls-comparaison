@@ -9,6 +9,15 @@ import type {
 } from '@/types';
 import { compareWorkbooks, buildFieldChangeSummaries, type EngineInput } from '@/features/diff/diffEngine';
 
+export interface SessionEntry {
+  id: string;
+  fileNameA: string;
+  fileNameB: string;
+  keyColumn: string;
+  timestamp: number;
+  summary: { changed: number; added: number; removed: number; unchanged: number; totalMatched: number };
+}
+
 interface AppState {
   // Files
   workbookA: ParsedWorkbook | null;
@@ -18,10 +27,15 @@ interface AppState {
 
   // Config
   config: ComparisonConfig | null;
+  ignoredColumns: string[];
+  columnTolerances: Record<string, number>;
 
   // Results
   result: ComparisonResult | null;
   fieldChangeSummaries: FieldChangeSummary[];
+
+  // Session history
+  sessionHistory: SessionEntry[];
 
   // UI
   view: AppView;
@@ -31,11 +45,14 @@ interface AppState {
   statusFilter: { changed: boolean; added: boolean; removed: boolean; unchanged: boolean };
   fieldFilter: string;
   expandedRowKeys: Set<string>;
+  currentChangedIndex: number;
 
   // Actions
   setWorkbookA: (wb: ParsedWorkbook | null, error?: string | null) => void;
   setWorkbookB: (wb: ParsedWorkbook | null, error?: string | null) => void;
   setConfig: (config: ComparisonConfig) => void;
+  setIgnoredColumns: (cols: string[]) => void;
+  setColumnTolerances: (tolerances: Record<string, number>) => void;
   runComparison: (input: EngineInput) => void;
   setView: (view: AppView) => void;
   toggleTheme: () => void;
@@ -44,7 +61,22 @@ interface AppState {
   setStatusFilter: (filter: Partial<AppState['statusFilter']>) => void;
   setFieldFilter: (field: string) => void;
   toggleRowExpansion: (key: string) => void;
+  setCurrentChangedIndex: (idx: number) => void;
   reset: () => void;
+}
+
+const HISTORY_KEY = 'xls-diff-history';
+
+function loadHistory(): SessionEntry[] {
+  try {
+    return JSON.parse(localStorage.getItem(HISTORY_KEY) ?? '[]');
+  } catch {
+    return [];
+  }
+}
+
+function saveHistory(entries: SessionEntry[]) {
+  localStorage.setItem(HISTORY_KEY, JSON.stringify(entries.slice(0, 10)));
 }
 
 export const useStore = create<AppState>((set, get) => ({
@@ -53,12 +85,14 @@ export const useStore = create<AppState>((set, get) => ({
   fileAError: null,
   fileBError: null,
   config: null,
+  ignoredColumns: [],
+  columnTolerances: {},
   result: null,
   fieldChangeSummaries: [],
+  sessionHistory: loadHistory(),
   view: 'upload',
-  theme: (typeof window !== 'undefined' && window.matchMedia?.('(prefers-color-scheme: dark)').matches
-    ? 'dark'
-    : 'light') as ThemeMode,
+  currentChangedIndex: 0,
+  theme: 'light' as ThemeMode,
   showAllFields: false,
   searchQuery: '',
   statusFilter: { changed: true, added: true, removed: true, unchanged: false },
@@ -72,11 +106,34 @@ export const useStore = create<AppState>((set, get) => ({
     set({ workbookB: wb, fileBError: error, result: null, fieldChangeSummaries: [] }),
 
   setConfig: (config) => set({ config }),
+  setIgnoredColumns: (cols) => set({ ignoredColumns: cols }),
+  setColumnTolerances: (tolerances) => set({ columnTolerances: tolerances }),
 
   runComparison: (input) => {
-    const result = compareWorkbooks(input);
+    const { ignoredColumns, columnTolerances, workbookA, workbookB } = get();
+    // Filter out ignored columns
+    const filteredInput = {
+      ...input,
+      headersA: input.headersA.filter((h) => !ignoredColumns.includes(h)),
+      headersB: input.headersB.filter((h) => !ignoredColumns.includes(h)),
+    };
+    // Apply per-column tolerances by patching config per field during comparison
+    const result = compareWorkbooks(filteredInput, columnTolerances);
     const fieldChangeSummaries = buildFieldChangeSummaries(result);
-    set({ result, fieldChangeSummaries, view: 'compare', expandedRowKeys: new Set() });
+
+    // Save to session history
+    const entry: SessionEntry = {
+      id: Date.now().toString(),
+      fileNameA: workbookA?.fileName ?? 'File A',
+      fileNameB: workbookB?.fileName ?? 'File B',
+      keyColumn: input.keyColumn,
+      timestamp: Date.now(),
+      summary: result.summary,
+    };
+    const history = [entry, ...get().sessionHistory.filter((e) => e.id !== entry.id)].slice(0, 10);
+    saveHistory(history);
+
+    set({ result, fieldChangeSummaries, view: 'compare', expandedRowKeys: new Set(), sessionHistory: history, currentChangedIndex: 0 });
   },
 
   setView: (view) => set({ view }),
@@ -92,6 +149,7 @@ export const useStore = create<AppState>((set, get) => ({
     else expanded.add(key);
     set({ expandedRowKeys: expanded });
   },
+  setCurrentChangedIndex: (idx) => set({ currentChangedIndex: idx }),
   reset: () =>
     set({
       workbookA: null,
@@ -99,6 +157,8 @@ export const useStore = create<AppState>((set, get) => ({
       fileAError: null,
       fileBError: null,
       config: null,
+      ignoredColumns: [],
+      columnTolerances: {},
       result: null,
       fieldChangeSummaries: [],
       view: 'upload',
@@ -107,5 +167,6 @@ export const useStore = create<AppState>((set, get) => ({
       statusFilter: { changed: true, added: true, removed: true, unchanged: false },
       fieldFilter: 'all',
       expandedRowKeys: new Set(),
+      currentChangedIndex: 0,
     }),
 }));

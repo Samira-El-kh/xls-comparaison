@@ -1,4 +1,4 @@
-import { useMemo, useState, useCallback } from 'react';
+import { useMemo, useState } from 'react';
 import {
   ChevronRight,
   ChevronDown,
@@ -15,7 +15,7 @@ import { Badge } from '@/components/ui/badge';
 import { formatNumber, formatDiff, formatPercentage, isNumeric, toNumber } from '@/features/diff/numericDiff';
 import type { CellValue, RowDiff, FieldDiff } from '@/types';
 
-const PAGE_SIZE = 50;
+const PAGE_SIZE = 30;
 
 export function DiffTable() {
   const result = useStore((s) => s.result);
@@ -25,7 +25,7 @@ export function DiffTable() {
   const showAllFields = useStore((s) => s.showAllFields);
   const expandedRowKeys = useStore((s) => s.expandedRowKeys);
   const toggleRowExpansion = useStore((s) => s.toggleRowExpansion);
-  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
+  const [page, setPage] = useState(1);
 
   const filteredRows = useMemo(() => {
     if (!result) return [];
@@ -64,11 +64,11 @@ export function DiffTable() {
     return rows;
   }, [result, statusFilter, fieldFilter, searchQuery]);
 
-  const visibleRows = filteredRows.slice(0, visibleCount);
+  const totalPages = Math.max(1, Math.ceil(filteredRows.length / PAGE_SIZE));
+  const safePage = Math.min(page, totalPages);
+  const pageRows = filteredRows.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
 
-  const handleLoadMore = useCallback(() => {
-    setVisibleCount((c) => c + PAGE_SIZE);
-  }, []);
+  if (page > totalPages && totalPages > 0) setPage(1);
 
   if (!result) return null;
 
@@ -97,7 +97,7 @@ export function DiffTable() {
 
       {/* Rows */}
       <div className="divide-y">
-        {visibleRows.map((row) => (
+        {pageRows.map((row) => (
           <DiffRow
             key={row.key}
             row={row}
@@ -109,15 +109,59 @@ export function DiffTable() {
         ))}
       </div>
 
-      {/* Load more */}
-      {visibleCount < filteredRows.length && (
-        <div className="border-t p-3 text-center">
-          <button
-            onClick={handleLoadMore}
-            className="text-xs font-medium text-muted-foreground hover:text-foreground"
-          >
-            Showing {visibleRows.length.toLocaleString()} of {filteredRows.length.toLocaleString()} rows — Load more
-          </button>
+      {/* Pagination */}
+      {totalPages > 1 && (
+        <div className="flex items-center justify-between border-t px-4 py-3">
+          <span className="text-xs text-muted-foreground">
+            {((safePage - 1) * PAGE_SIZE + 1).toLocaleString()}–{Math.min(safePage * PAGE_SIZE, filteredRows.length).toLocaleString()} of {filteredRows.length.toLocaleString()} rows
+          </span>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => setPage(1)}
+              disabled={safePage === 1}
+              className="rounded px-2 py-1 text-xs text-muted-foreground hover:bg-muted disabled:opacity-30"
+            >«</button>
+            <button
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              disabled={safePage === 1}
+              className="rounded px-2 py-1 text-xs text-muted-foreground hover:bg-muted disabled:opacity-30"
+            >‹</button>
+            {Array.from({ length: totalPages }, (_, i) => i + 1)
+              .filter((p) => p === 1 || p === totalPages || Math.abs(p - safePage) <= 2)
+              .reduce<(number | '...')[]>((acc, p, i, arr) => {
+                if (i > 0 && p - (arr[i - 1] as number) > 1) acc.push('...');
+                acc.push(p);
+                return acc;
+              }, [])
+              .map((p, i) =>
+                p === '...' ? (
+                  <span key={`ellipsis-${i}`} className="px-1 text-xs text-muted-foreground">…</span>
+                ) : (
+                  <button
+                    key={p}
+                    onClick={() => setPage(p as number)}
+                    className={cn(
+                      'min-w-[28px] rounded px-2 py-1 text-xs font-medium transition-colors',
+                      safePage === p
+                        ? 'bg-primary text-primary-foreground'
+                        : 'text-muted-foreground hover:bg-muted'
+                    )}
+                  >
+                    {p}
+                  </button>
+                )
+              )}
+            <button
+              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+              disabled={safePage === totalPages}
+              className="rounded px-2 py-1 text-xs text-muted-foreground hover:bg-muted disabled:opacity-30"
+            >›</button>
+            <button
+              onClick={() => setPage(totalPages)}
+              disabled={safePage === totalPages}
+              className="rounded px-2 py-1 text-xs text-muted-foreground hover:bg-muted disabled:opacity-30"
+            >»</button>
+          </div>
         </div>
       )}
     </div>
@@ -138,7 +182,7 @@ function DiffRow({
   fieldFilter: string;
 }) {
   return (
-    <div className="animate-fade-in">
+    <div className="animate-fade-in" id={`diff-row-${row.key}`}>
       <button
         onClick={onToggle}
         className={cn(
@@ -270,6 +314,11 @@ function FieldRow({ field }: { field: FieldDiff }) {
           <span className="inline-flex items-center gap-1 text-xs font-medium text-removed">
             <Minus className="h-3 w-3" />
             <span>Removed</span>
+          </span>
+        ) : field.dateFormatOnly ? (
+          <span className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground">
+            <Equal className="h-3 w-3" />
+            <span>Date format only</span>
           </span>
         ) : bothNumeric && field.numericDiff ? (
           <NumericChange

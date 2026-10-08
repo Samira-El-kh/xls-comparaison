@@ -1,5 +1,5 @@
 import { useMemo, useState, useEffect } from 'react';
-import { Settings2, AlertTriangle, CheckCircle2, Play, ChevronDown, ChevronUp } from 'lucide-react';
+import { Settings2, AlertTriangle, CheckCircle2, Play, ChevronDown, ChevronUp, X } from 'lucide-react';
 import { useStore } from '@/store/useStore';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
@@ -8,6 +8,7 @@ import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Separator } from '@/components/ui/separator';
+import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 import type { ComparisonConfig, CellValue } from '@/types';
 import { isEmpty } from '@/features/diff/stringDiff';
@@ -18,6 +19,10 @@ export function ConfigPanel() {
   const runComparison = useStore((s) => s.runComparison);
   const setConfig = useStore((s) => s.setConfig);
   const existingConfig = useStore((s) => s.config);
+  const ignoredColumns = useStore((s) => s.ignoredColumns);
+  const setIgnoredColumns = useStore((s) => s.setIgnoredColumns);
+  const columnTolerances = useStore((s) => s.columnTolerances);
+  const setColumnTolerances = useStore((s) => s.setColumnTolerances);
 
   const [sheetA, setSheetA] = useState(existingConfig?.sheetA ?? workbookA.sheets[0]?.name ?? '');
   const [sheetB, setSheetB] = useState(existingConfig?.sheetB ?? workbookB.sheets[0]?.name ?? '');
@@ -36,6 +41,8 @@ export function ConfigPanel() {
   const [treatEmptyAsEqual, setTreatEmptyAsEqual] = useState(existingConfig?.treatEmptyAsEqual ?? true);
   const [caseInsensitive, setCaseInsensitive] = useState(existingConfig?.caseInsensitive ?? false);
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const [showIgnore, setShowIgnore] = useState(false);
+  const [showColTol, setShowColTol] = useState(false);
 
   const sheetAData = useMemo(
     () => workbookA.sheets.find((s) => s.name === sheetA) ?? workbookA.sheets[0],
@@ -281,6 +288,105 @@ export function ConfigPanel() {
                     className="h-8 w-32 font-mono text-xs"
                     step="0.000001"
                   />
+                </div>
+              )}
+            </div>
+
+            <Separator />
+
+            {/* Ignore Columns */}
+            <div className="space-y-3">
+              <button
+                onClick={() => setShowIgnore(!showIgnore)}
+                className="flex items-center gap-1.5 text-sm font-semibold text-foreground"
+              >
+                {showIgnore ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                Ignore columns
+              </button>
+              {showIgnore && (
+                <div className="space-y-2">
+                  <p className="text-xs text-muted-foreground">Selected columns will be excluded from comparison entirely.</p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {allHeaders.map((h) => {
+                      const ignored = ignoredColumns.includes(h);
+                      return (
+                        <button
+                          key={h}
+                          onClick={() =>
+                            setIgnoredColumns(
+                              ignored ? ignoredColumns.filter((c) => c !== h) : [...ignoredColumns, h]
+                            )
+                          }
+                          className={cn(
+                            'rounded border px-2 py-0.5 text-xs transition-colors',
+                            ignored
+                              ? 'border-destructive/40 bg-destructive/10 text-destructive line-through'
+                              : 'border-border bg-muted/50 text-foreground hover:border-primary/40'
+                          )}
+                        >
+                          {h}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  {ignoredColumns.length > 0 && (
+                    <button
+                      onClick={() => setIgnoredColumns([])}
+                      className="text-xs text-muted-foreground hover:text-foreground"
+                    >
+                      Clear all
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+
+            <Separator />
+
+            {/* Per-column tolerances */}
+            <div className="space-y-3">
+              <button
+                onClick={() => setShowColTol(!showColTol)}
+                className="flex items-center gap-1.5 text-sm font-semibold text-foreground"
+              >
+                {showColTol ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                Per-column tolerance
+              </button>
+              {showColTol && (
+                <div className="space-y-2">
+                  <p className="text-xs text-muted-foreground">Override the global tolerance for specific numeric columns.</p>
+                  <div className="space-y-2 max-h-48 overflow-y-auto">
+                    {allHeaders.map((h) => (
+                      <div key={h} className="flex items-center gap-2">
+                        <span className="w-48 truncate text-xs text-foreground">{h}</span>
+                        <Input
+                          type="number"
+                          placeholder="global"
+                          value={columnTolerances[h] ?? ''}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            const next = { ...columnTolerances };
+                            if (val === '') delete next[h];
+                            else next[h] = parseFloat(val);
+                            setColumnTolerances(next);
+                          }}
+                          className="h-7 w-28 font-mono text-xs"
+                          step="0.000001"
+                        />
+                        {columnTolerances[h] !== undefined && (
+                          <button
+                            onClick={() => {
+                              const next = { ...columnTolerances };
+                              delete next[h];
+                              setColumnTolerances(next);
+                            }}
+                          >
+                            <X className="h-3 w-3 text-muted-foreground hover:text-destructive" />
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
                 </div>
               )}
             </div>

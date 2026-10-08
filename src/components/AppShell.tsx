@@ -1,5 +1,5 @@
-import { useEffect } from 'react';
-import { FileSpreadsheet, GitCompare, BarChart3, ShieldCheck, Sun, Moon, RotateCcw } from 'lucide-react';
+import { useEffect, useCallback } from 'react';
+import { FileSpreadsheet, GitCompare, BarChart3, ShieldCheck, Sun, Moon, RotateCcw, LineChart } from 'lucide-react';
 import { useStore } from '@/store/useStore';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -7,6 +7,7 @@ import { UploadView } from '@/components/upload/UploadView';
 import { CompareView } from '@/components/comparison/CompareView';
 import { FieldChangesView } from '@/components/comparison/FieldChangesView';
 import { QualityView } from '@/components/comparison/QualityView';
+import { ColumnAnalyticsView } from '@/components/analytics/ColumnAnalyticsView';
 
 export function AppShell() {
   const view = useStore((s) => s.view);
@@ -17,6 +18,35 @@ export function AppShell() {
   const workbookA = useStore((s) => s.workbookA);
   const workbookB = useStore((s) => s.workbookB);
   const result = useStore((s) => s.result);
+  const currentChangedIndex = useStore((s) => s.currentChangedIndex);
+  const setCurrentChangedIndex = useStore((s) => s.setCurrentChangedIndex);
+  const toggleRowExpansion = useStore((s) => s.toggleRowExpansion);
+  const expandedRowKeys = useStore((s) => s.expandedRowKeys);
+
+  const changedRows = result?.rows.filter((r) => r.status !== 'UNCHANGED') ?? [];
+
+  const jumpTo = useCallback((idx: number) => {
+    const clamped = Math.max(0, Math.min(idx, changedRows.length - 1));
+    setCurrentChangedIndex(clamped);
+    const row = changedRows[clamped];
+    if (!row) return;
+    if (!expandedRowKeys.has(row.key)) toggleRowExpansion(row.key);
+    setTimeout(() => {
+      document.getElementById(`diff-row-${row.key}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, 50);
+  }, [changedRows, currentChangedIndex, expandedRowKeys, toggleRowExpansion, setCurrentChangedIndex]);
+
+  // Keyboard shortcuts
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+      if (e.shiftKey && e.key === 'ArrowDown') { e.preventDefault(); jumpTo(currentChangedIndex + 1); }
+      if (e.shiftKey && e.key === 'ArrowUp') { e.preventDefault(); jumpTo(currentChangedIndex - 1); }
+      if (e.key === 't' && !e.metaKey && !e.ctrlKey) toggleTheme();
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [jumpTo, toggleTheme, currentChangedIndex]);
 
   // Apply theme
   useEffect(() => {
@@ -34,6 +64,7 @@ export function AppShell() {
   const navItems: { id: typeof view; label: string; icon: React.ReactNode; disabled: boolean }[] = [
     { id: 'compare', label: 'Compare', icon: <GitCompare className="h-3.5 w-3.5" />, disabled: !canNavigate },
     { id: 'fields', label: 'Fields', icon: <BarChart3 className="h-3.5 w-3.5" />, disabled: !hasResult },
+    { id: 'analytics', label: 'Analytics', icon: <LineChart className="h-3.5 w-3.5" />, disabled: !hasResult },
     { id: 'quality', label: 'Data Quality', icon: <ShieldCheck className="h-3.5 w-3.5" />, disabled: !hasResult },
   ];
 
@@ -105,6 +136,7 @@ export function AppShell() {
         {view === 'upload' && <UploadView />}
         {view === 'compare' && <CompareView />}
         {view === 'fields' && hasResult && <FieldChangesView />}
+        {view === 'analytics' && hasResult && <ColumnAnalyticsView />}
         {view === 'quality' && hasResult && <QualityView />}
       </main>
     </div>

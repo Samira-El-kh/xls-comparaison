@@ -1,5 +1,42 @@
 import type { CellValue } from '@/types';
 
+// Date patterns: MM/DD/YYYY, DD.MM.YYYY, YYYY-MM-DD, DD/MM/YYYY, etc.
+const DATE_PATTERNS = [
+  /^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/,   // MM/DD/YYYY or DD/MM/YYYY
+  /^(\d{1,2})\.(\d{1,2})\.(\d{4})$/,             // DD.MM.YYYY
+  /^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})$/,     // YYYY-MM-DD
+];
+
+export function tryParseDate(value: CellValue): Date | null {
+  if (value instanceof Date) return value;
+  if (typeof value !== 'string') return null;
+  const str = value.trim();
+
+  // DD.MM.YYYY
+  const dotMatch = str.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/);
+  if (dotMatch) {
+    const d = new Date(+dotMatch[3], +dotMatch[2] - 1, +dotMatch[1]);
+    return isNaN(d.getTime()) ? null : d;
+  }
+  // MM/DD/YYYY
+  const slashMatch = str.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (slashMatch) {
+    const d = new Date(+slashMatch[3], +slashMatch[1] - 1, +slashMatch[2]);
+    return isNaN(d.getTime()) ? null : d;
+  }
+  // YYYY-MM-DD
+  const isoMatch = str.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+  if (isoMatch) {
+    const d = new Date(+isoMatch[1], +isoMatch[2] - 1, +isoMatch[3]);
+    return isNaN(d.getTime()) ? null : d;
+  }
+  return null;
+}
+
+export function isDateString(value: CellValue): boolean {
+  return tryParseDate(value) !== null;
+}
+
 export function toNumber(value: CellValue): number | null {
   if (value === null || value === undefined || value === '') return null;
   if (typeof value === 'number') {
@@ -7,6 +44,8 @@ export function toNumber(value: CellValue): number | null {
   }
   if (typeof value === 'boolean') return value ? 1 : 0;
   if (value instanceof Date) return value.getTime();
+  // Don't parse date strings as numbers
+  if (isDateString(value)) return null;
   const str = String(value).trim();
   if (str === '') return null;
   const cleaned = str.replace(/[, ]/g, '').replace(/[()%]/g, '');
