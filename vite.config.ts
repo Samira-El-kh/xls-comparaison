@@ -3,7 +3,6 @@ import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vite';
 
 export default defineConfig({
-  base: '/xls-comparaison/',
   plugins: [react()],
   server: {
     watch: {
